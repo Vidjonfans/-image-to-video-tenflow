@@ -6,7 +6,6 @@ import requests
 import subprocess
 from fastapi import FastAPI, Query, Request
 from fastapi.staticfiles import StaticFiles
-from ultralytics import YOLO
 
 # FastAPI app
 app = FastAPI()
@@ -16,8 +15,9 @@ OUTDIR = "outputs"
 os.makedirs(OUTDIR, exist_ok=True)
 app.mount("/outputs", StaticFiles(directory=OUTDIR), name="outputs")
 
-# Load YOLOv8 model
-model = YOLO("yolov8n.pt")
+# Haar Cascade for eyes
+EYE_CASCADE_PATH = "cascades/haarcascade_eye.xml"
+eye_cascade = cv2.CascadeClassifier(EYE_CASCADE_PATH)
 
 
 def download_image(image_url: str, save_path: str):
@@ -41,6 +41,13 @@ def convert_to_browser_friendly(input_path: str, output_path: str):
     subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
 
 
+def detect_eyes(image):
+    """Detect eyes using Haar Cascade"""
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    eyes = eye_cascade.detectMultiScale(gray, scaleFactor=1.3, minNeighbors=5)
+    return [(x, y, x + w, y + h) for (x, y, w, h) in eyes]
+
+
 def simulate_eye_blink(frame, eyes, blink_factor):
     """
     Shrinks vertical size of the eye region to simulate natural blinking.
@@ -49,6 +56,8 @@ def simulate_eye_blink(frame, eyes, blink_factor):
     for (x1, y1, x2, y2) in eyes:
         eye_region = frame[y1:y2, x1:x2].copy()
         h, w, _ = eye_region.shape
+        if h <= 1 or w <= 1:
+            continue
 
         # New height according to blink factor
         new_h = max(1, int(h * blink_factor))
@@ -69,10 +78,8 @@ def generate_blink_animation(image_path: str, output_path: str, fps: int = 10, t
 
     h, w, _ = img.shape
 
-    # YOLO detection
-    results = model(image_path)
-    detections = results[0].boxes.xyxy.cpu().numpy()
-    eyes = [(int(x1), int(y1), int(x2), int(y2)) for x1, y1, x2, y2, *_ in detections]
+    # Detect eyes
+    eyes = detect_eyes(img)
 
     # Temporary raw video
     temp_raw = output_path.replace(".mp4", "_raw.avi")
