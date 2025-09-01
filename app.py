@@ -83,7 +83,18 @@ def generate_blink_animation(image_path: str, output_path: str):
 
     out.release()
     cv2.destroyAllWindows()
-    return output_path
+    return output_path, fps
+
+
+def get_video_info(video_path: str):
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return {"frame_count": 0, "fps": 0, "duration": 0.0}
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    duration = frame_count / fps if fps > 0 else 0
+    cap.release()
+    return {"frame_count": frame_count, "fps": fps, "duration": duration}
 
 
 @app.get("/process")
@@ -98,12 +109,21 @@ def process(request: Request, image_url: str = Query(...)):
         output_path = os.path.join(OUTDIR, f"{image_id}.mp4")
 
         # Generate animation
-        generate_blink_animation(image_path, output_path)
+        output_path, fps = generate_blink_animation(image_path, output_path)
+
+        # Get video info
+        video_info = get_video_info(output_path)
 
         # Full public URL
         base_url = str(request.base_url).rstrip("/")
         video_url = f"{base_url}/outputs/{os.path.basename(output_path)}"
-        return {"video_url": video_url}
+
+        return {
+            "video_url": video_url,
+            "frame_count": video_info["frame_count"],
+            "fps": video_info["fps"],
+            "duration": video_info["duration"],
+        }
 
     except Exception as e:
         return {"error": str(e)}
