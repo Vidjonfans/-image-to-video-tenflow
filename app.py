@@ -47,11 +47,12 @@ def detect_eyes(image):
     eyes = eye_cascade.detectMultiScale(gray, scaleFactor=1.3, minNeighbors=5)
     return [(x, y, x + w, y + h) for (x, y, w, h) in eyes]
 
-
+#------- start eyesblink----------
 def simulate_eye_blink(frame, eyes, blink_factor):
     """
-    Shrinks vertical size of the eye region to simulate natural blinking.
-    blink_factor = 1.0 (open), 0.0 (closed)
+    Simulates natural blinking:
+    - blink_factor = 1.0 (fully open)
+    - blink_factor = 0.0 (fully closed)
     """
     for (x1, y1, x2, y2) in eyes:
         eye_region = frame[y1:y2, x1:x2].copy()
@@ -59,16 +60,30 @@ def simulate_eye_blink(frame, eyes, blink_factor):
         if h <= 1 or w <= 1:
             continue
 
-        # New height according to blink factor
-        new_h = max(1, int(h * blink_factor))
-        top = (h - new_h) // 2
-        bottom = top + new_h
+        # Copy original eye
+        closed_eye = eye_region.copy()
 
-        # Shrink vertically
-        resized = cv2.resize(eye_region[top:bottom, :], (w, h))
-        frame[y1:y2, x1:x2] = resized
+        # Height of the visible area during blink
+        visible_h = int(h * blink_factor)
+        if visible_h < 1:
+            visible_h = 1
+
+        # Fill top and bottom with skin-tone (mean color of eye region)
+        avg_color = closed_eye.mean(axis=(0, 1)).astype(np.uint8).tolist()
+        closed_eye[:h//2, :] = avg_color   # upper eyelid
+        closed_eye[h//2:, :] = avg_color   # lower eyelid
+
+        # Keep only middle strip open
+        start = (h - visible_h) // 2
+        end = start + visible_h
+        closed_eye[start:end, :] = eye_region[start:end, :]
+
+        # Replace in frame
+        frame[y1:y2, x1:x2] = closed_eye
+
     return frame
 
+#------- End eyesblink----------
 
 def generate_blink_animation(image_path: str, output_path: str, fps: int = 10, total_frames: int = 20):
     # Load input image
