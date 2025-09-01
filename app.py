@@ -29,101 +29,57 @@ def download_image(image_url: str, save_path: str):
         raise Exception(f"Image download failed: {r.status_code}")
 
 
-def generate_blink_animation(image_path: str, output_path: str):
-    # Load input image with alpha support
+def generate_blink_animation(image_path: str, output_path: str, fps: int = 10, total_frames: int = 20):
+    # Load input image
     img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
-
     if img is None:
         raise Exception("Failed to read image")
 
-    # Convert RGBA -> BGR if needed
     if img.shape[-1] == 4:
         img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
 
     h, w, _ = img.shape
 
-    # Detect objects (eyes) using YOLO
     results = model(image_path)
     detections = results[0].boxes.xyxy.cpu().numpy()
 
-    # Collect eye regions
-    eyes = []
-    for det in detections:
-        x1, y1, x2, y2 = map(int, det[:4])
-        eyes.append((x1, y1, x2, y2))
+    eyes = [(int(x1), int(y1), int(x2), int(y2)) for x1, y1, x2, y2, *_ in detections]
 
-    # Video writer
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    fps = 10
     out = cv2.VideoWriter(output_path, fourcc, fps, (w, h))
 
     if not eyes:
-        # fallback: agar eyes detect na ho to bhi ek valid video banao
-        for _ in range(20):
+        for _ in range(total_frames):
             out.write(img)
     else:
-        for frame_id in range(20):
+        for frame_id in range(total_frames):
             frame = img.copy()
             for (x1, y1, x2, y2) in eyes:
                 eye_region = frame[y1:y2, x1:x2]
-
-                alpha = abs(np.sin(np.pi * frame_id / 20))
+                alpha = abs(np.sin(np.pi * frame_id / total_frames))
                 overlay = np.zeros_like(eye_region, dtype=np.uint8)
-                cv2.rectangle(
-                    overlay,
-                    (0, 0),
-                    (x2 - x1, y2 - y1),
-                    (0, 0, 0),
-                    -1,
-                )
+                cv2.rectangle(overlay, (0, 0), (x2 - x1, y2 - y1), (0, 0, 0), -1)
                 cv2.addWeighted(overlay, 1 - alpha, eye_region, alpha, 0, eye_region)
                 frame[y1:y2, x1:x2] = eye_region
-
             out.write(frame)
 
     out.release()
-    cv2.destroyAllWindows()
-    return output_path, fps
-
-
-def get_video_info(video_path: str):
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        return {"frame_count": 0, "fps": 0, "duration": 0.0}
-    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    duration = frame_count / fps if fps > 0 else 0
-    cap.release()
-    return {"frame_count": frame_count, "fps": fps, "duration": duration}
+    return {"frames": total_frames, "fps": fps, "resolution": f"{w}x{h}", "duration": total_frames / fps}
 
 
 @app.get("/process")
 def process(request: Request, image_url: str = Query(...)):
     try:
-        # Download image
         image_id = str(uuid.uuid4())
         image_path = os.path.join(OUTDIR, f"{image_id}.jpg")
         download_image(image_url, image_path)
 
-        # Output video path
         output_path = os.path.join(OUTDIR, f"{image_id}.mp4")
+        metadata = generate_blink_animation(image_path, output_path)
 
-        # Generate animation
-        output_path, fps = generate_blink_animation(image_path, output_path)
-
-        # Get video info
-        video_info = get_video_info(output_path)
-
-        # Full public URL
         base_url = str(request.base_url).rstrip("/")
         video_url = f"{base_url}/outputs/{os.path.basename(output_path)}"
 
-        return {
-            "video_url": video_url,
-            "frame_count": video_info["frame_count"],
-            "fps": video_info["fps"],
-            "duration": video_info["duration"],
-        }
-
+        return {"video_url": video_url, **metadata}
     except Exception as e:
         return {"error": str(e)}
