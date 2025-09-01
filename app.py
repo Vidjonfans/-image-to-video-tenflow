@@ -3,6 +3,7 @@ import numpy as np
 import os
 import uuid
 import requests
+import subprocess
 from fastapi import FastAPI, Query, Request
 from fastapi.staticfiles import StaticFiles
 from ultralytics import YOLO
@@ -15,7 +16,7 @@ OUTDIR = "outputs"
 os.makedirs(OUTDIR, exist_ok=True)
 app.mount("/outputs", StaticFiles(directory=OUTDIR), name="outputs")
 
-# Load YOLOv8 model (replace with fine-tuned weights for eyes if available)
+# Load YOLOv8 model
 model = YOLO("yolov8n.pt")
 
 
@@ -29,6 +30,17 @@ def download_image(image_url: str, save_path: str):
         raise Exception(f"Image download failed: {r.status_code}")
 
 
+def convert_to_browser_friendly(input_path: str, output_path: str):
+    """Convert video to H.264 + AAC mp4 using ffmpeg"""
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-movflags", "+faststart",
+        output_path
+    ]
+    subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+
+
 def generate_blink_animation(image_path: str, output_path: str, fps: int = 10, total_frames: int = 20):
     # Load input image
     img = cv2.imread(image_path, cv2.IMREAD_COLOR)
@@ -40,19 +52,18 @@ def generate_blink_animation(image_path: str, output_path: str, fps: int = 10, t
     # YOLO detection
     results = model(image_path)
     detections = results[0].boxes.xyxy.cpu().numpy()
-
     eyes = [(int(x1), int(y1), int(x2), int(y2)) for x1, y1, x2, y2, *_ in detections]
 
-    # Video Writer
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    out = cv2.VideoWriter(output_path, fourcc, fps, (w, h))
+    # Temporary raw video (before ffmpeg conversion)
+    temp_raw = output_path.replace(".mp4", "_raw.avi")
+
+    fourcc = cv2.VideoWriter_fourcc(*"XVID")
+    out = cv2.VideoWriter(temp_raw, fourcc, fps, (w, h))
 
     if not eyes:
-        # No eyes detected → static video
         for _ in range(total_frames):
             out.write(img)
     else:
-        # Animate detected eyes
         for frame_id in range(total_frames):
             frame = img.copy()
             alpha = abs(np.sin(np.pi * frame_id / total_frames))  # smooth blink
@@ -65,6 +76,13 @@ def generate_blink_animation(image_path: str, output_path: str, fps: int = 10, t
             out.write(frame)
 
     out.release()
+
+    # Convert raw -> browser friendly mp4
+    convert_to_browser_friendly(temp_raw, output_path)
+
+    # Clean up temp file
+    if os.path.exists(temp_raw):
+        os.remove(temp_raw)
 
     # Verify video properties
     cap = cv2.VideoCapture(output_path)
