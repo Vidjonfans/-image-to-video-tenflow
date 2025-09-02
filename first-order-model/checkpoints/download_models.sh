@@ -8,12 +8,12 @@ pip install gdown
 echo "Downloading models..."
 
 # Vox model
-gdown --id 1pB5zdTqXsklgysZ425IpREQnS3-Jr48q -O first-order-model/checkpoints/vox-cpk.pth.tar
+gdown --id     1_v_xW1V52gZCZnXgh1Ap_gwA9YVIzUnS  -O first-order-model/checkpoints/vox-cpk.pth.tar
 
 # MGIF model
-gdown --id 1AbCdEfGhIjKlMnOpQrStUvWxYz123456 -O first-order-model/checkpoints/mgif.pth.tar
+gdown --id    1L8P-hpBhZi8Q_1vP2KlQ4N6dvlzpYBvZ -O first-order-model/checkpoints/vox-adv-cpk.pth.tar
 
 # Avatar model
-gdown --id 1ZyXwVuTsRqPoNmLkJiHgFeDcBa987654 -O first-order-model/checkpoints/avatar.pth.tar
+gdown --id    10o7v0UdT4DVLaTIz1n6UojFbaMOGxA_y -O first-order-model/checkpoints/taichi-cpk.pth.tar
 
 echo "All models downloaded successfully!"
