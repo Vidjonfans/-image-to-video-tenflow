@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import mediapipe as mp
 import os
 import uuid
 import requests
@@ -15,9 +16,9 @@ OUTDIR = "outputs"
 os.makedirs(OUTDIR, exist_ok=True)
 app.mount("/outputs", StaticFiles(directory=OUTDIR), name="outputs")
 
-# Haar Cascade for eyes
-EYE_CASCADE_PATH = "cascades/haarcascade_eye.xml"
-eye_cascade = cv2.CascadeClassifier(EYE_CASCADE_PATH)
+# Mediapipe setup
+mp_face_mesh = mp.solutions.face_mesh
+face_mesh = mp_face_mesh.FaceMesh(static_image_mode=True, refine_landmarks=True)
 
 
 def download_image(image_url: str, save_path: str):
@@ -41,49 +42,57 @@ def convert_to_browser_friendly(input_path: str, output_path: str):
     subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
 
 
-def detect_eyes(image):
-    """Detect eyes using Haar Cascade"""
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    eyes = eye_cascade.detectMultiScale(gray, scaleFactor=1.3, minNeighbors=5)
-    return [(x, y, x + w, y + h) for (x, y, w, h) in eyes]
+def get_eye_landmarks(image):
+    """Detect eye landmarks using Mediapipe FaceMesh"""
+    h, w, _ = image.shape
+    results = face_mesh.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+    if not results.multi_face_landmarks:
+        return []
 
-#------- start eyesblink----------
+    eyes = []
+    for face_landmarks in results.multi_face_landmarks:
+        # Left eye landmark indexes (Mediapipe)
+        left_idx = [33, 160, 158, 133, 153, 144]
+        right_idx = [362, 385, 387, 263, 373, 380]
+
+        left_eye = [(int(face_landmarks.landmark[i].x * w),
+                     int(face_landmarks.landmark[i].y * h)) for i in left_idx]
+        right_eye = [(int(face_landmarks.landmark[i].x * w),
+                      int(face_landmarks.landmark[i].y * h)) for i in right_idx]
+
+        eyes.append(left_eye)
+        eyes.append(right_eye)
+
+    return eyes
+
+
 def simulate_eye_blink(frame, eyes, blink_factor):
     """
-    Simulates natural blinking:
-    - blink_factor = 1.0 (fully open)
-    - blink_factor = 0.0 (fully closed)
+    Animate eyelids closing/opening using polygon fill
+    blink_factor = 1 (open) -> 0 (closed)
     """
-    for (x1, y1, x2, y2) in eyes:
-        eye_region = frame[y1:y2, x1:x2].copy()
-        h, w, _ = eye_region.shape
-        if h <= 1 or w <= 1:
-            continue
+    overlay = frame.copy()
+    for eye in eyes:
+        hull = cv2.convexHull(np.array(eye))
+        x, y, w, h = cv2.boundingRect(hull)
 
-        # Copy original eye
-        closed_eye = eye_region.copy()
+        # Shrink eye vertically depending on blink_factor
+        center_y = y + h // 2
+        new_h = int(h * blink_factor)
+        y1 = center_y - new_h // 2
+        y2 = center_y + new_h // 2
 
-        # Height of the visible area during blink
-        visible_h = int(h * blink_factor)
-        if visible_h < 1:
-            visible_h = 1
+        # Draw skin color over eye area
+        avg_color = frame[y:y+h, x:x+w].mean(axis=(0, 1)).astype(int).tolist()
+        cv2.fillConvexPoly(overlay, hull, avg_color)
 
-        # Fill top and bottom with skin-tone (mean color of eye region)
-        avg_color = closed_eye.mean(axis=(0, 1)).astype(np.uint8).tolist()
-        closed_eye[:h//2, :] = avg_color   # upper eyelid
-        closed_eye[h//2:, :] = avg_color   # lower eyelid
+        # Restore only the visible strip
+        if new_h > 1:
+            eye_region = frame[y1:y2, x:x+w]
+            overlay[y1:y2, x:x+w] = eye_region
 
-        # Keep only middle strip open
-        start = (h - visible_h) // 2
-        end = start + visible_h
-        closed_eye[start:end, :] = eye_region[start:end, :]
+    return overlay
 
-        # Replace in frame
-        frame[y1:y2, x1:x2] = closed_eye
-
-    return frame
-
-#------- End eyesblink----------
 
 def generate_blink_animation(image_path: str, output_path: str, fps: int = 10, total_frames: int = 20):
     # Load input image
@@ -93,8 +102,8 @@ def generate_blink_animation(image_path: str, output_path: str, fps: int = 10, t
 
     h, w, _ = img.shape
 
-    # Detect eyes
-    eyes = detect_eyes(img)
+    # Detect eye landmarks
+    eyes = get_eye_landmarks(img)
 
     # Temporary raw video
     temp_raw = output_path.replace(".mp4", "_raw.avi")
@@ -106,10 +115,8 @@ def generate_blink_animation(image_path: str, output_path: str, fps: int = 10, t
             out.write(img)
     else:
         for frame_id in range(total_frames):
-            frame = img.copy()
-            # Blink curve: open -> close -> open
-            blink_factor = 1 - abs(np.sin(np.pi * frame_id / total_frames))
-            frame = simulate_eye_blink(frame, eyes, blink_factor)
+            blink_factor = 1 - abs(np.sin(np.pi * frame_id / total_frames))  # open -> close -> open
+            frame = simulate_eye_blink(img.copy(), eyes, blink_factor)
             out.write(frame)
 
     out.release()
@@ -117,25 +124,10 @@ def generate_blink_animation(image_path: str, output_path: str, fps: int = 10, t
     # Convert raw -> browser friendly mp4
     convert_to_browser_friendly(temp_raw, output_path)
 
-    # Clean up temp file
     if os.path.exists(temp_raw):
         os.remove(temp_raw)
 
-    # Verify video properties
-    cap = cv2.VideoCapture(output_path)
-    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps_actual = cap.get(cv2.CAP_PROP_FPS)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    duration = frame_count / fps_actual if fps_actual > 0 else 0
-    cap.release()
-
-    return {
-        "frames": frame_count,
-        "fps": fps_actual,
-        "resolution": f"{width}x{height}",
-        "duration": duration
-    }
+    return {"status": "done"}
 
 
 @app.get("/process")
@@ -146,14 +138,11 @@ def process(request: Request, image_url: str = Query(...)):
         download_image(image_url, image_path)
 
         output_path = os.path.join(OUTDIR, f"{image_id}.mp4")
-        metadata = generate_blink_animation(image_path, output_path)
+        generate_blink_animation(image_path, output_path)
 
         base_url = str(request.base_url).rstrip("/")
         video_url = f"{base_url}/outputs/{os.path.basename(output_path)}"
 
-        return {
-            "video_url": video_url,
-            **metadata
-        }
+        return {"video_url": video_url}
     except Exception as e:
         return {"error": str(e)}
