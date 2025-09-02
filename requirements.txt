@@ -3,6 +3,23 @@ uvicorn
 opencv-python-headless
 numpy
 requests
-ultralytics
+ultralytics==8.0.196   # YOLOv8 stable version
 mediapipe==0.10.14
 protobuf<5
+
+# Deep learning libs
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
+
+# First Order Motion Model (FOMM)
+scikit-image
+imageio
+imageio-ffmpeg
+PyYAML
+tqdm
+pillow
+
+# GAN related
+tensorflow>=2.15.0
+keras>=2.15.0
