@@ -4,3 +4,5 @@ opencv-python-headless
 numpy
 requests
 ultralytics
+mediapipe==0.10.14
+protobuf<5
