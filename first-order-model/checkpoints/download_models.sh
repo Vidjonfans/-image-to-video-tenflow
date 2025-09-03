@@ -17,6 +17,6 @@ gdown --id 1L8P-hpBhZi8Q_1vP2KlQ4N6dvlzpYBvZ -O first-order-model/checkpoints/vo
 gdown --id 10o7v0UdT4DVLaTIz1n6UojFbaMOGxA_y -O first-order-model/checkpoints/taichi-cpk.pth.tar
 
 # YOLO best.pt (replace with your actual Drive file ID 👇)
-gdown --id YOUR_BEST_PT_FILE_ID -O best.pt
+gdown --id 1_v_xW1V52gZCZnXgh1Ap_gwA9YVIzUnS -O best.pt
 
 echo "All models downloaded successfully!"
