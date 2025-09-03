@@ -1,5 +1,5 @@
-train: ./dataset/images/train
-val: ./dataset/images/val
+train: ./yolo_eye_dataset/images/train
+val: ./yolo_eye_dataset/images/val
 
 nc: 1
 names: ['eye']
